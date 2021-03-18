@@ -208,12 +208,12 @@ if __name__ == '__main__':
         ('cat_feature_selection', ColumnSelector(raw_feats_x_num)),
         ('cat_feature_fillna', KNNImputer(n_neighbors=3)),
         ('Ploy_feat', poly_features),
-        ('cat_feature_scaler', MinMaxScaler())]
+        ('cat_feature_scalar', MinMaxScaler())]
     )
 
     pipe_feat_cat_y_process = Pipeline(steps=[
         ('cat_feature_selection', ColumnSelector(raw_feats_y_cat)),
-        ('cat_feature_procss', StringIndexer())]
+        ('cat_feature_process', StringIndexer())]
     )
 
     #feat_num_transform = pipe_feat_num_proc.fit_transform(df)
@@ -227,7 +227,6 @@ if __name__ == '__main__':
     lb = LabelBinarizer()
     y_train_transform = lb.fit_transform(y_train)
 
-
     #Model
     log_clf = LogisticRegression(penalty='l2', C=0.1, max_iter=10000, random_state=42)
     svm_clf = SVC(gamma="auto", kernel='rbf', degree=3, C=0.01,  coef0=0.0001, probability=True, random_state=42)
@@ -236,10 +235,11 @@ if __name__ == '__main__':
         DecisionTreeClassifier(max_depth=3, criterion='entropy', min_samples_split=0.8, random_state=42),
         n_estimators=150, algorithm="SAMME.R", learning_rate=0.1, random_state=42)
 
-    svm_tuned_parameters = [{'model__kernel': ['rbf'], 'model__gamma': [1e-3, 1e-4], 'model__C': [1, 10, 100, 1000],
-                             'model__degree':[1,2,3,4,5]},
-                            {'model__kernel': ['linear'], 'model__C': [1, 10, 100, 1000]}]
-
+    svm_tuned_parameters = {'model__kernel': ['rbf', 'sigmoid'],
+                            'model__gamma': [0.01, 0.1, 1, 10],
+                            'model__C': np.linspace(0.1, 1, 5),
+                            'model__degree':[3,4,5],
+                            'PCA__n_components':[5, 10,  20,  30, 35]}
 
     over = SMOTE(sampling_strategy=0.1)
 
@@ -259,16 +259,13 @@ if __name__ == '__main__':
         y_test_folds = y_train_transform[test_index]
 
         scoring = {'AUC': 'roc_auc', 'Accuracy': make_scorer(accuracy_score)}
-        grid_model = GridSearchCV(pipe_model, param_grid=svm_tuned_parameters, scoring=scoring, refit='AUC', return_train_score=True)
+        grid_model = GridSearchCV(pipe_model, param_grid=svm_tuned_parameters, scoring='f1')
         grid_model.fit(X_train_folds, y_train_folds.ravel())
-        y_train_pred = grid_model.predict(X_train_folds)
+        y_train_pred = grid_model.best_estimator_.predict(X_train_folds)
         print("Precision score of training set is {0}".format(precision_score(y_train_folds, y_train_pred)))
         print("Recall score of training set is {0}".format(recall_score(y_train_folds, y_train_pred)))
 
-
-
-        y_test_pred = grid_model.predict(X_test_folds)
-
+        y_test_pred = grid_model.best_estimator_.predict(X_test_folds)
         print("Precision score of test set is {0}".format(precision_score(y_test_folds, y_test_pred)))
         print("Recall score of test set is {0}".format(recall_score(y_test_folds, y_test_pred)))
         print(classification_report(y_test_folds, y_test_pred))
@@ -277,7 +274,7 @@ if __name__ == '__main__':
         def to_labels(pos_probs, threshold):
             return (pos_probs >= threshold).astype('int')
 
-        y_test_probs = grid_model.predict_proba(X_test_folds)[:,0]
+        y_test_probs = grid_model.best_estimator_.predict_proba(X_test_folds)[:,1]
         thresholds = np.arange(0, 1, 0.001)
         scores = [f1_score(y_test_folds, to_labels(y_test_probs, t), zero_division=1, average='weighted') for t in thresholds]
         ix = np.argmax(scores)
@@ -287,5 +284,5 @@ if __name__ == '__main__':
         y_test_thresh_pred = np.where(y_test_probs>threshold_best, 1, 0)
         print("Precision score of changed threshold for test set is {0}".format(precision_score(y_test_folds, y_test_thresh_pred)))
         print("Recall score of  changed threshold for test set is {0}".format(recall_score(y_test_folds, y_test_thresh_pred)))
-        print('Best Parameters : '.format(grid_model.best_params_))
+        print(grid_model.best_params_)
         print("Done")
